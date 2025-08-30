@@ -1,0 +1,225 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"/>
+  <title>Hour Meter Readings</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    /* (Unchanged CSS) */
+    * { box-sizing: border-box; font-family: Arial, sans-serif; }
+    body { margin: 0; padding: 10px; background-color: #f0f2f5; }
+    .container {
+      max-width: 100%;
+      overflow-x: auto;
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 1px 8px rgba(0,0,0,0.1);
+      margin-bottom: 30px;
+    }
+    h2 { text-align: center; margin-bottom: 15px; font-size: 18px; text-transform: uppercase; }
+    label { font-size: 14px; display: block; margin-top: 10px; }
+    input[type="date"], input[type="text"] {
+      width: 100%;
+      max-width: 300px;
+      padding: 6px;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+    input[readonly] { background-color: #eee; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      table-layout: fixed;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 4px;
+      text-align: center;
+    }
+    th {
+      background-color: #f7f7f7;
+      font-weight: bold;
+    }
+    button {
+      margin-top: 10px;
+      padding: 10px;
+      font-size: 14px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    button:hover { background-color: #0056b3; }
+    @media (max-width: 768px) {
+      table, thead, tbody, th, td, tr, input[type="text"] {
+        font-size: 10px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h2>Hour Meter Readings</h2>
+  <label for="recordDate"><strong>Date:</strong></label>
+  <input type="date" id="recordDate" />
+  <form id="machineForm">
+    <table>
+      <thead>
+        <tr>
+          <th>Machine No</th><th>D&N Price</th><th>Amount</th><th>Op. Bal</th><th>Day Rmk</th>
+          <th>Day Op.</th><th>Day Cl.</th><th>Used</th><th>Top</th><th>Adj</th>
+          <th>N. Op</th><th>Night Rmk</th><th>Night Read</th><th>Used</th><th>Cl. Bal</th>
+        </tr>
+      </thead>
+      <tbody id="machineRows"></tbody>
+    </table>
+    <button type="submit">Save Records</button>
+    <button type="button" onclick="downloadPDF()">Download PDF</button>
+  </form>
+</div>
+
+<script>
+const machineCount = 6;
+const fields = [
+  'machineNumber', 'dnPrice', 'amount', 'opBal',
+  'dayRemarks', 'dayOpReading', 'dayClReading', 'usedDay',
+  'top', 'adjDay', 'nOp', 'nightRemarks', 'nightReading',
+  'usedNight', 'clBal'
+];
+
+const tbody = document.getElementById('machineRows');
+for (let i = 1; i <= machineCount; i++) {
+  let row = '<tr>';
+  fields.forEach(field => {
+    const id = `${field}_${i}`;
+    const readonly = ['top', 'usedDay', 'nOp', 'usedNight', 'clBal'].includes(field) ? 'readonly' : '';
+    row += `<td><input type="text" id="${id}" ${readonly}></td>`;
+  });
+  row += '</tr>';
+  tbody.innerHTML += row;
+}
+
+function calculate(i) {
+  const get = id => parseFloat(document.getElementById(`${id}_${i}`).value) || 0;
+  const top = document.getElementById(`top_${i}`);
+  const usedDay = document.getElementById(`usedDay_${i}`);
+  const nOp = document.getElementById(`nOp_${i}`);
+  const usedNight = document.getElementById(`usedNight_${i}`);
+  const clBal = document.getElementById(`clBal_${i}`);
+  const amount = get('amount');
+  const price = get('dnPrice');
+  top.value = price ? (amount / price).toFixed(2) : '';
+  const dayUsed = get('dayClReading') - get('dayOpReading');
+  usedDay.value = !isNaN(dayUsed) ? dayUsed.toFixed(2) : '';
+  const nOpVal = get('opBal') - parseFloat(usedDay.value || 0) + get('top') + get('adjDay');
+  nOp.value = !isNaN(nOpVal) ? nOpVal.toFixed(2) : '';
+  const nightUsedVal = get('nightReading') - get('dayClReading');
+  usedNight.value = !isNaN(nightUsedVal) ? nightUsedVal.toFixed(2) : '';
+  const clBalVal = parseFloat(nOp.value || 0) - parseFloat(usedNight.value || 0);
+  clBal.value = !isNaN(clBalVal) ? clBalVal.toFixed(2) : '';
+}
+
+function saveToStorage() {
+  const date = document.getElementById('recordDate').value;
+  if (!date) return;
+  const data = { date, machines: [] };
+  for (let i = 1; i <= machineCount; i++) {
+    const row = {};
+    fields.forEach(field => {
+      row[field] = document.getElementById(`${field}_${i}`).value;
+    });
+    data.machines.push(row);
+  }
+  const allData = JSON.parse(localStorage.getItem('hourMeterData') || '{}');
+  allData[date] = data;
+  localStorage.setItem('hourMeterData', JSON.stringify(allData));
+}
+
+function loadFromStorage(date) {
+  const allData = JSON.parse(localStorage.getItem('hourMeterData') || '{}');
+  const data = allData[date];
+  if (data) {
+    data.machines.forEach((row, i) => {
+      fields.forEach(field => {
+        const el = document.getElementById(`${field}_${i + 1}`);
+        if (el) el.value = row[field] || '';
+      });
+      calculate(i + 1);
+    });
+  } else {
+    fillFromPrevious(date);
+  }
+}
+
+// ✅ Only bring nightReading → dayOpReading, clBal → opBal
+function fillFromPrevious(date) {
+  const allData = JSON.parse(localStorage.getItem('hourMeterData') || '{}');
+  const prevDate = getPreviousDate(date);
+  const prev = allData[prevDate];
+  if (!prev) return;
+  prev.machines.forEach((row, i) => {
+    document.getElementById(`machineNumber_${i + 1}`).value = row['machineNumber'] || '';
+    document.getElementById(`opBal_${i + 1}`).value = row['clBal'] || '';
+    document.getElementById(`dayOpReading_${i + 1}`).value = row['nightReading'] || '';
+  });
+}
+
+function getPreviousDate(dateStr) {
+  const d = new Date(dateStr);
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().split('T')[0];
+}
+
+for (let i = 1; i <= machineCount; i++) {
+  fields.forEach(field => {
+    const input = document.getElementById(`${field}_${i}`);
+    if (input) {
+      input.addEventListener('input', () => {
+        calculate(i);
+        saveToStorage();
+      });
+    }
+  });
+}
+
+document.getElementById('recordDate').addEventListener('input', () => {
+  const date = document.getElementById('recordDate').value;
+  if (date) loadFromStorage(date);
+});
+
+document.getElementById('machineForm').addEventListener('submit', e => {
+  e.preventDefault();
+  saveToStorage();
+  alert('Data saved. You can close this tab and return later.');
+});
+
+function downloadPDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const date = document.getElementById("recordDate").value;
+  doc.setFontSize(12);
+  doc.text(`Hour Meter Readings - ${date}`, 14, 15);
+  let y = 25;
+  for (let i = 1; i <= machineCount; i++) {
+    const values = fields.map(field => document.getElementById(`${field}_${i}`).value || '');
+    doc.text(`Machine ${i}: ${values.join(' | ')}`, 10, y);
+    y += 8;
+    if (y > 270) { doc.addPage(); y = 20; }
+  }
+  doc.save(`HourMeter_${date}.pdf`);
+}
+
+window.onload = () => {
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('recordDate').value = today;
+  loadFromStorage(today);
+};
+</script>
+</body>
+</html>
